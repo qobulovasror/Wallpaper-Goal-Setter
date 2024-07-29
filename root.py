@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 from PIL import Image, ImageDraw, ImageFont
+import sqlite3
 import ctypes
 import os
 import shutil
@@ -13,9 +14,143 @@ from config import registry_value
 
 
 class SetWallaper:
-    def __init__(self, root, text_input) -> None:
+    def __init__(self, root) -> None:
         self.root = root
-        self.text_input = text_input
+        self.root.title("Wallpaper Goal Setter")
+        self.cur = None
+        self.initial_folder_and_DB()
+        self.createDBTables()
+        self.backup_original_wallpaper()
+        self.create_widgets()
+        self.getOldGoals()
+
+    def initial_folder_and_DB(self):
+        # create folder
+        self.backup_dir = os.path.join(os.path.expanduser("~"), root_folder)
+        os.makedirs(self.backup_dir, exist_ok=True)
+
+        self.currentlyImg = os.path.join(
+            os.path.expanduser("~"), root_folder + "\\currentlyImg"
+        )
+        os.makedirs(self.currentlyImg, exist_ok=True)
+
+        # create database
+        self.con = sqlite3.connect(self.backup_dir + "\\goals.db")
+        self.cur = self.con.cursor()
+
+    def createDBTables(self):
+        self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS goals(id INTEGER  PRIMARY KEY AUTOINCREMENT, title TEXT, checked INTEGER)"
+        )
+        self.cur.execute(
+            "CREATE TABLE IF NOT EXISTS isCreated(name TEXT, status TEXT)"
+        )
+
+    def backup_original_wallpaper(self):
+        res = self.cur.execute("SELECT status FROM isCreated WHERE name='backup'")
+        statusBackUp = res.fetchone()
+        if statusBackUp is None or statusBackUp[0] == 'NULL':
+            current_wallpaper = self.get_current_wallpaper()
+            if current_wallpaper and os.path.isfile(current_wallpaper):
+                backup_path = os.path.join(
+                    self.backup_dir, os.path.basename(current_wallpaper)
+                )
+                shutil.copy2(current_wallpaper, backup_path)
+                self.backup_path = backup_path
+                self.cur.execute(f"INSERT INTO isCreated VALUES ('backup', '{backup_path}')")
+                self.con.commit()
+        else:
+            self.backup_path = statusBackUp[0]
+
+    def create_widgets(self):
+        # app title
+        app_title = tk.Label(
+            self.root, text="Set a goal for the wallaper:", font=("Arial", 15)
+        )
+        app_title.grid(row=0, column=0, pady=5, sticky="n")
+
+        frame = tk.Frame(self.root)
+        frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+
+        # Listbox to display tasks
+        self.task_listbox = tk.Listbox(
+            frame, selectmode=tk.SINGLE, height=7, width=50, activestyle="none"
+        )
+        self.task_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Scrollbar
+        scrollbar = tk.Scrollbar(
+            frame, orient=tk.VERTICAL, command=self.task_listbox.yview
+        )
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Attach scrollbar to listbox
+        self.task_listbox.config(yscrollcommand=scrollbar.set)
+
+        # Entry widget to enter new tasks
+        self.task_entry = tk.Entry(self.root, width=30)
+        self.task_entry.grid(row=2, column=0, padx=10, pady=5, sticky="W")
+
+        # Buttons
+        add_button = tk.Button(
+            self.root, text="Add New Goal", command=self.add_task, width=15
+        )
+        add_button.grid(row=2, column=0, padx=10, pady=5, sticky="E")
+
+        remove_button = tk.Button(
+            self.root, text="Remove Task", command=self.remove_task
+        )
+        remove_button.grid(row=3, column=0, padx=10, pady=5, sticky="e")
+
+        complete_button = tk.Button(
+            self.root, text="Mark as Completed", command=self.mark_completed
+        )
+        complete_button.grid(row=3, column=0, padx=10, pady=5, sticky="w")
+
+        applay_changed = tk.Button(
+            self.root, text="Apply Changes", command=self.apply_changes, width="30"
+        )
+        applay_changed.grid(row=4, column=0, padx=10, pady=5, sticky="N")
+
+    def getOldGoals(self):
+        res = self.cur.execute("SELECT title, checked FROM goals")
+        tasks = res.fetchall()
+        print(tasks)
+        if tasks is None:
+            return
+        for t in tasks:
+            if t[1] == 1:
+                self.task_listbox.insert(tk.END, "✅ " + t[0])
+            else:
+                self.task_listbox.insert(tk.END, t[0])
+
+    def add_task(self):
+        task = self.task_entry.get().strip()
+        if task:
+            self.task_listbox.insert(tk.END, task)
+            self.task_entry.delete(0, tk.END)
+        else:
+            messagebox.showwarning("Warning", "The task entry cannot be empty!")
+
+    def remove_task(self):
+        try:
+            selected_index = self.task_listbox.curselection()[0]
+            self.task_listbox.delete(selected_index)
+        except IndexError:
+            messagebox.showwarning("Warning", "Select a task to remove!")
+
+    def mark_completed(self):
+        try:
+            selected_index = self.task_listbox.curselection()[0]
+            task = self.task_listbox.get(selected_index)
+            if task.startswith("✅ "):
+                self.task_listbox.delete(selected_index)
+                self.task_listbox.insert(tk.END, task[2:])
+            else:
+                self.task_listbox.delete(selected_index)
+                self.task_listbox.insert(tk.END, f"✅ {task}")
+        except IndexError:
+            messagebox.showwarning("Warning", "Select a task to mark as completed!")
 
     def get_current_wallpaper(self):
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry_key) as key:
@@ -51,28 +186,23 @@ class SetWallaper:
 
         return temp_image_path
 
-    def backup_original_wallpaper(self, src_path):
-        # Define the backup path
-        backup_dir = os.path.join(os.path.expanduser("~"), root_folder)
-        os.makedirs(backup_dir, exist_ok=True)
-        backup_path = os.path.join(backup_dir, os.path.basename(src_path))
-
-        # Copy the original wallpaper to the backup location
-        shutil.copy2(src_path, backup_path)
-        return backup_path
+    def copy_backuped_img(self):
+        if self.backup_path and os.path.isfile(self.backup_path):
+            currentlyImg_path = os.path.join(
+                self.currentlyImg, os.path.basename(self.backup_path)
+            )
+            shutil.copy2(self.backup_path, currentlyImg_path)
+            self.currentlyImg_path = currentlyImg_path
 
     def apply_changes(self):
-        goals_text = self.text_input.get("1.0", tk.END).strip()
+        self.copy_backuped_img()
+        goals_text = ''.join(self.task_listbox.get(0, tk.END)).strip()
         if not goals_text:
             messagebox.showwarning("Input Error", "Please enter some goals.")
             return
 
         current_wallpaper = self.get_current_wallpaper()
         if current_wallpaper and os.path.isfile(current_wallpaper):
-            # Backup the original wallpaper
-            backup_path = self.backup_original_wallpaper(current_wallpaper)
-            print(f"Original wallpaper backed up to: {backup_path}")
-
             with Image.open(current_wallpaper) as img:
                 width, height = img.size
 
