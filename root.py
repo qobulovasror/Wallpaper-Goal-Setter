@@ -26,16 +26,10 @@ class SetWallaper:
 
     def initial_folder_and_DB(self):
         # create folder
-        self.backup_dir = os.path.join(os.path.expanduser("~"), root_folder)
-        os.makedirs(self.backup_dir, exist_ok=True)
-
-        self.currentlyImg = os.path.join(
-            os.path.expanduser("~"), root_folder + "\\currentlyImg"
-        )
-        os.makedirs(self.currentlyImg, exist_ok=True)
-
+        self.root_dir = os.path.join(os.path.expanduser("~"), root_folder)
+        os.makedirs(self.root_dir, exist_ok=True)
         # create database
-        self.con = sqlite3.connect(self.backup_dir + "\\goals.db")
+        self.con = sqlite3.connect(self.root_dir + "\\goals.db")
         self.cur = self.con.cursor()
 
     def createDBTables(self):
@@ -43,21 +37,21 @@ class SetWallaper:
             "CREATE TABLE IF NOT EXISTS goals(id INTEGER  PRIMARY KEY AUTOINCREMENT, title TEXT, checked INTEGER)"
         )
         self.cur.execute(
-            "CREATE TABLE IF NOT EXISTS isCreated(name TEXT, status TEXT)"
+            "CREATE TABLE IF NOT EXISTS orginalImg(path TEXT)"
         )
 
     def backup_original_wallpaper(self):
-        res = self.cur.execute("SELECT status FROM isCreated WHERE name='backup'")
+        res = self.cur.execute("SELECT path FROM orginalImg")
         statusBackUp = res.fetchone()
         if statusBackUp is None or statusBackUp[0] == 'NULL':
             current_wallpaper = self.get_current_wallpaper()
             if current_wallpaper and os.path.isfile(current_wallpaper):
                 backup_path = os.path.join(
-                    self.backup_dir, os.path.basename(current_wallpaper)
+                    self.root_dir, os.path.basename(current_wallpaper)
                 )
                 shutil.copy2(current_wallpaper, backup_path)
                 self.backup_path = backup_path
-                self.cur.execute(f"INSERT INTO isCreated VALUES ('backup', '{backup_path}')")
+                self.cur.execute(f"INSERT INTO orginalImg VALUES ('{current_wallpaper}')")
                 self.con.commit()
         else:
             self.backup_path = statusBackUp[0]
@@ -115,12 +109,11 @@ class SetWallaper:
     def getOldGoals(self):
         res = self.cur.execute("SELECT title, checked FROM goals")
         tasks = res.fetchall()
-        print(tasks)
         if tasks is None:
             return
         for t in tasks:
             if t[1] == 1:
-                self.task_listbox.insert(tk.END, "✅ " + t[0])
+                self.task_listbox.insert(tk.END, "+ " + t[0])
             else:
                 self.task_listbox.insert(tk.END, t[0])
 
@@ -186,31 +179,34 @@ class SetWallaper:
 
         return temp_image_path
 
-    def copy_backuped_img(self):
-        if self.backup_path and os.path.isfile(self.backup_path):
-            currentlyImg_path = os.path.join(
-                self.currentlyImg, os.path.basename(self.backup_path)
-            )
-            shutil.copy2(self.backup_path, currentlyImg_path)
-            self.currentlyImg_path = currentlyImg_path
+    def saveToDB(self, goals):
+        self.cur.execute("DELETE FROM goals")
+        goals = goals.split("\n")
+        data = []
+        for goal in goals:
+            if goal.startswith("✅ "): 
+                data.append((goal[2:], 1))
+            else:
+                data.append((goal, 0))
+        self.cur.executemany("INSERT INTO goals (title, checked) VALUES(?, ?)", data)
+        self.con.commit()
 
     def apply_changes(self):
-        self.copy_backuped_img()
-        goals_text = ''.join(self.task_listbox.get(0, tk.END)).strip()
+        goals_text = '\n'.join(self.task_listbox.get(0, tk.END)).strip()
+        self.saveToDB(goals_text)
         if not goals_text:
             messagebox.showwarning("Input Error", "Please enter some goals.")
             return
-
         current_wallpaper = self.get_current_wallpaper()
         if current_wallpaper and os.path.isfile(current_wallpaper):
             with Image.open(current_wallpaper) as img:
                 width, height = img.size
 
-            padding = 10
+            padding = 100
             position = (width - padding, padding)
 
             modified_wallpaper_path = self.add_text_to_image(
-                current_wallpaper, goals_text, position, 30
+                self.backup_path, goals_text, position, 28
             )
             self.set_wallpaper(modified_wallpaper_path)
             messagebox.showinfo("Success", "Wallpaper updated successfully.")
