@@ -56,6 +56,12 @@ class SetWallaper:
         else:
             self.backup_path = statusBackUp[0]
 
+    def validate_input(self, input_str):
+        if input_str.isdigit() or input_str == "":
+            return True
+        else:
+            return False
+        
     def create_widgets(self):
         # app title
         app_title = tk.Label(
@@ -101,10 +107,38 @@ class SetWallaper:
         )
         complete_button.grid(row=3, column=0, padx=10, pady=5, sticky="w")
 
+        label_padding = tk.Label(self.root, text="Padding size")
+        label_padding.grid(row=4, column=0, padx=5, pady=0, sticky="NW")
+
+        label_padding = tk.Label(self.root, text="Font size")
+        label_padding.grid(row=4, column=0, padx=5, pady=0, sticky="N")
+
+        label_padding = tk.Label(self.root, text="Text position")
+        label_padding.grid(row=4, column=0, padx=5, pady=0, sticky="NE")
+
+        self.padding_entry = tk.Entry(self.root, validate="key", validatecommand=(self.root.register(self.validate_input), '%P'), width=15)
+        self.padding_entry.grid(row=5, column=0, padx=5, pady=5, sticky="NW")
+        self.padding_entry.insert(0, 100)
+        
+        self.font_size_entry = tk.Entry(self.root, validate="key", validatecommand=(self.root.register(self.validate_input), '%P'), width=15)
+        self.font_size_entry.grid(row=5, column=0, padx=5, pady=5, sticky="N")
+        self.font_size_entry.insert(0, 30)
+
+        self.options = [ 
+            "TOP RIGHT", 
+            "TOP LEFT", 
+            "BOTTOM LEFT",
+            "BOTTOM RIGHT" 
+        ] 
+        self.clicked = tk.StringVar() 
+        self.clicked.set("TOP RIGHT") 
+        self.drop = tk.OptionMenu(self.root, self.clicked,  *self.options)
+        self.drop.grid(row=5, column=0, padx=5, pady=5, sticky="NE")
+
         applay_changed = tk.Button(
-            self.root, text="Apply Changes", command=self.apply_changes, width="30"
+            self.root, text="Apply Changes", command=self.apply_changes, width="30",
         )
-        applay_changed.grid(row=4, column=0, padx=10, pady=5, sticky="N")
+        applay_changed.grid(row=6, column=0, padx=10, pady=5, sticky="N")
 
     def getOldGoals(self):
         res = self.cur.execute("SELECT title, checked FROM goals")
@@ -191,22 +225,52 @@ class SetWallaper:
         self.cur.executemany("INSERT INTO goals (title, checked) VALUES(?, ?)", data)
         self.con.commit()
 
+    def validateInputs(self):
+        if int(self.padding_entry.get())>300 or int(self.padding_entry.get())<50:
+            messagebox.showerror("Error", "Padding must be between 50 and 300")
+            return False
+        if int(self.font_size_entry.get())>60 or int(self.padding_entry.get())<20:
+            messagebox.showerror("Error", "Font size must be between 20 and 60")
+            return False
+        return True
+        
     def apply_changes(self):
         goals_text = '\n'.join(self.task_listbox.get(0, tk.END)).strip()
         self.saveToDB(goals_text)
+        texts = []
+        for i in goals_text.split("\n"):
+            if i.startswith("✅ "): 
+                texts.append(i[2:]+ "  +")
+            else:
+                texts.append(i)
+        goals_text = "\n".join(texts)
         if not goals_text:
             messagebox.showwarning("Input Error", "Please enter some goals.")
+            return
+        
+        if not self.validateInputs():
             return
         current_wallpaper = self.get_current_wallpaper()
         if current_wallpaper and os.path.isfile(current_wallpaper):
             with Image.open(current_wallpaper) as img:
                 width, height = img.size
 
-            padding = 100
+            padding = int(self.padding_entry.get()) or 100
+            font_size = int(self.font_size_entry.get()) or 30
+
             position = (width - padding, padding)
+            print(self.clicked.get())
+            if self.clicked.get() == self.options[0]:
+                position = (width - padding, padding)
+            elif self.clicked.get() == self.options[1]:
+                position = (padding, padding)
+            elif self.clicked.get() == self.options[2]:
+                position = (padding, height - padding)
+            elif self.clicked.get() == self.options[3]:
+                position = (width - padding, height - padding)
 
             modified_wallpaper_path = self.add_text_to_image(
-                self.backup_path, goals_text, position, 28
+                self.backup_path, goals_text, position, font_size
             )
             self.set_wallpaper(modified_wallpaper_path)
             messagebox.showinfo("Success", "Wallpaper updated successfully.")
